@@ -19,12 +19,15 @@ from .test_agent_disable import _wait_for_slots
 RANK_ONE_WAIT_TIME = 300
 
 
+yaml = yaml.YAML(typ="unsafe", pure=True)  # type: ignore
+
+
 @pytest.mark.e2e_cpu_2a
 @pytest.mark.timeout(600)
 def test_allocation_resources_incremental_release() -> None:
     """
-    Start an two container experiment and ensure one container exits before the other. Ensure
-    resources are released and schedule-able without the other needing to be released.
+    Start an experiment with two containers and ensure one container exits before the other. Ensure
+    resources are released and can be scheduled without the other needing to be released.
     """
     cleanup_exp_ids = []
 
@@ -77,7 +80,7 @@ def test_allocation_resources_incremental_release() -> None:
                 "exactly one agent did not free after {} seconds".format(RANK_ONE_WAIT_TIME)
             )
 
-        # Ensure we can schedule on the free slot, not only that the API says its available.
+        # Ensure we can schedule on the free slot, not only that the API says it's available.
         exp_id_2 = exp.create_experiment(
             conf.fixtures_path("no_op/single.yaml"),
             conf.fixtures_path("no_op"),
