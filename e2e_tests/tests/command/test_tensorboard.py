@@ -56,7 +56,8 @@ def s3_config(num_trials: int, secrets: Dict[str, str], prefix: Optional[str] = 
     if prefix is not None:
         config_dict["checkpoint_storage"]["prefix"] = prefix  # type: ignore
 
-    return str(yaml.dump(config_dict))
+    _yaml = yaml.YAML(typ="unsafe", pure=True)  # type: ignore
+    return str(_yaml.dump(config_dict))
 
 
 @pytest.mark.slow
@@ -190,7 +191,8 @@ def test_start_tensorboard_with_custom_image(tmp_path: Path) -> None:
     t_id = res.stdout.strip("\n")
     command = ["det", "-m", conf.make_master_url(), "tensorboard", "config", t_id]
     res = subprocess.run(command, universal_newlines=True, stdout=subprocess.PIPE, check=True)
-    config = yaml.safe_load(res.stdout)
+    _yaml = yaml.YAML(typ="safe", pure=True)  # type: ignore
+    config = _yaml.load(res.stdout)
     assert (
         config["environment"]["image"]["cpu"] == "alpine"
         and config["environment"]["image"]["cuda"] == "alpine"
