@@ -784,7 +784,8 @@ def test_non_root_experiment(clean_auth: None, tmp_path: pathlib.Path) -> None:
             model_def_content = f.read()
 
         with open(conf.fixtures_path("no_op/single-one-short-step.yaml")) as f:
-            config = yaml.safe_load(f)
+            _yaml = yaml.YAML(typ="safe", pure=True)
+            config = _yaml.load(f)
 
         # Use a user-owned path to ensure shared_fs uses the container_path and not host_path.
         with non_tmp_shared_fs_path() as host_path:
@@ -793,12 +794,13 @@ def test_non_root_experiment(clean_auth: None, tmp_path: pathlib.Path) -> None:
                 "host_path": host_path,
             }
 
+            _yaml = yaml.YAML(typ="unsafe", pure=True)
             # Call `det --version` in a startup hook to ensure that det is on the PATH.
             with FileTree(
                 tmp_path,
                 {
                     "startup-hook.sh": "det --version || exit 77",
-                    "const.yaml": yaml.dump(config),  # type: ignore
+                    "const.yaml": _yaml.dump(config),
                     "model_def.py": model_def_content,
                 },
             ) as tree:
