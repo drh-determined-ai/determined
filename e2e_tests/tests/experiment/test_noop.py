@@ -13,6 +13,8 @@ from determined.experimental import Determined
 from tests import config as conf
 from tests import experiment as exp
 
+yaml = yaml.YAML(typ="unsafe", pure=True)  # type: ignore
+
 
 @pytest.mark.e2e_cpu
 def test_noop_pause() -> None:

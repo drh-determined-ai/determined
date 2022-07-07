@@ -15,6 +15,8 @@ from tests import command as cmd
 from tests import config as conf
 from tests.filetree import FileTree
 
+yaml = yaml.YAML(typ="unsafe", pure=True)  # type: ignore
+
 
 @pytest.mark.slow
 @pytest.mark.e2e_cpu

@@ -16,6 +16,8 @@ from determined.common.experimental import session
 from tests import config as conf
 from tests.cluster import utils as cluster_utils
 
+yaml = yaml.YAML(typ="unsafe", pure=True)  # type: ignore
+
 
 def maybe_create_experiment(
     config_file: str, model_def_file: str, create_args: Optional[List[str]] = None
