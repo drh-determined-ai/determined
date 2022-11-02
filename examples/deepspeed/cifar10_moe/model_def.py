@@ -1,21 +1,19 @@
 import os
-import filelock
-import datetime
 from typing import Any, Dict
-from attrdict import AttrDict
-import torch
-import torchvision
-import torchvision.transforms as transforms
+
 import deepspeed
+import filelock
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
+import torchvision.transforms as transforms
+from attrdict import AttrDict
 
 from determined.pytorch import DataLoader
-from determined.pytorch.deepspeed import (
-    DeepSpeedTrial,
-    DeepSpeedTrialContext,
-    overwrite_deepspeed_config,
-)
+from determined.pytorch.deepspeed import (DeepSpeedTrial,
+                                          DeepSpeedTrialContext,
+                                          overwrite_deepspeed_config)
 
 
 class Net(nn.Module):
@@ -38,10 +36,12 @@ class Net(nn.Module):
                         expert=fc3,
                         num_experts=n_e,
                         ep_size=args.ep_world_size,
-                        use_residual=args.mlp_type == 'residual',
+                        use_residual=args.mlp_type == "residual",
                         k=args.top_k,
                         min_capacity=args.min_capacity,
-                        noisy_gate_policy=args.noisy_gate_policy))
+                        noisy_gate_policy=args.noisy_gate_policy,
+                    )
+                )
             self.moe_layer_list = nn.ModuleList(self.moe_layer_list)
             self.fc4 = nn.Linear(84, 10)
         else:
@@ -63,12 +63,10 @@ class Net(nn.Module):
 
 
 def create_moe_param_groups(model):
-    from deepspeed.moe.utils import split_params_into_different_moe_groups_for_optimizer
+    from deepspeed.moe.utils import \
+        split_params_into_different_moe_groups_for_optimizer
 
-    parameters = {
-        'params': [p for p in model.parameters()],
-        'name': 'parameters'
-    }
+    parameters = {"params": [p for p in model.parameters()], "name": "parameters"}
 
     return split_params_into_different_moe_groups_for_optimizer(parameters)
 
