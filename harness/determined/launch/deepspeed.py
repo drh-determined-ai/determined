@@ -171,7 +171,7 @@ def create_deepspeed_env_file() -> None:
                     f.write(f"{k}={v}\n")
 
 
-def create_run_command(master_address: str, hostfile_path: Optional[str]) -> List[str]:
+def create_run_command(master_address: str, hostfile_path: Optional[str], autotuning: bool = False) -> List[str]:
     # Construct the deepspeed command.
     deepspeed_process_cmd = ["deepspeed"]
     if hostfile_path is not None:
@@ -179,6 +179,8 @@ def create_run_command(master_address: str, hostfile_path: Optional[str]) -> Lis
     deepspeed_process_cmd += ["--master_addr", master_address, "--no_python", "--no_local_rank"]
     if deepspeed_version > version.parse("0.6.4"):
         deepspeed_process_cmd.append("--no_ssh_check")  # Bypass deepspeed's ssh check.
+    if autotuning:
+        deepspeed_process_cmd += ["--autotuning", "run"]
     deepspeed_process_cmd.append("--")
     return deepspeed_process_cmd
 
@@ -200,7 +202,7 @@ def check_deepspeed_version(multi_machine: bool) -> None:
     )
 
 
-def main(script: List[str]) -> int:
+def main(script: List[str], autotuning: bool = False) -> int:
     info = det.get_cluster_info()
     assert info is not None, "must be run on-cluster"
     assert info.task_type == "TRIAL", f'must be run with task_type="TRIAL", not "{info.task_type}"'
@@ -283,7 +285,7 @@ def main(script: List[str]) -> int:
         num_proc_per_machine=len(info.slot_ids),
         ip_addresses=info.container_addrs,
     )
-    cmd = create_run_command(master_address, hostfile_path)
+    cmd = create_run_command(master_address, hostfile_path, autotuning=autotuning)
 
     pid_client_cmd = create_pid_client_cmd(info.allocation_id)
 
@@ -333,7 +335,7 @@ def main(script: List[str]) -> int:
 def parse_args(args: List[str]) -> List[str]:
     # Then parse the rest of the commands normally.
     parser = argparse.ArgumentParser(
-        usage="%(prog)s (--trial TRIAL)|(SCRIPT...)",
+        usage="%(prog)s [--autotuning] (--trial TRIAL)|(SCRIPT...)",
         description=(
             "Launch a script under deepspeed on a Determined cluster, with automatic handling of "
             "IP addresses, sshd containers, and shutdown mechanics."
@@ -354,9 +356,16 @@ def parse_args(args: List[str]) -> List[str]:
         nargs=argparse.REMAINDER,
         help="script to launch for training",
     )
+    parser.add_argument(
+        "--autotuning",
+        action="store_true",
+        help="run DeepSpeed autotuner",
+    )
     parsed = parser.parse_args(args)
 
     script = parsed.script or []
+
+    autotuning = parsed.autotuning or False
 
     if parsed.trial is not None:
         if script:
@@ -371,9 +380,9 @@ def parse_args(args: List[str]) -> List[str]:
         print("error: empty script is not allowed", file=sys.stderr)
         sys.exit(1)
 
-    return script
+    return script, autotuning
 
 
 if __name__ == "__main__":
-    script = parse_args(sys.argv[1:])
-    sys.exit(main(script))
+    script, autotuning = parse_args(sys.argv[1:])
+    sys.exit(main(script, autotuning))

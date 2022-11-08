@@ -25,27 +25,7 @@ class Net(nn.Module):
         self.conv2 = nn.Conv2d(6, 16, 5)
         self.fc1 = nn.Linear(16 * 5 * 5, 120)
         self.fc2 = nn.Linear(120, 84)
-        if args.moe:
-            fc3 = nn.Linear(84, 84)
-            self.moe_layer_list = []
-            for n_e in args.num_experts:
-                # create moe layers based on the number of experts
-                self.moe_layer_list.append(
-                    deepspeed.moe.layer.MoE(
-                        hidden_size=84,
-                        expert=fc3,
-                        num_experts=n_e,
-                        ep_size=args.ep_world_size,
-                        use_residual=args.mlp_type == "residual",
-                        k=args.top_k,
-                        min_capacity=args.min_capacity,
-                        noisy_gate_policy=args.noisy_gate_policy,
-                    )
-                )
-            self.moe_layer_list = nn.ModuleList(self.moe_layer_list)
-            self.fc4 = nn.Linear(84, 10)
-        else:
-            self.fc3 = nn.Linear(84, 10)
+        self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
@@ -53,22 +33,8 @@ class Net(nn.Module):
         x = x.view(-1, 16 * 5 * 5)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        if self.args.moe:
-            for layer in self.moe_layer_list:
-                x, _, _ = layer(x)
-            x = self.fc4(x)
-        else:
-            x = self.fc3(x)
+        x = self.fc3(x)
         return x
-
-
-def create_moe_param_groups(model):
-    from deepspeed.moe.utils import \
-        split_params_into_different_moe_groups_for_optimizer
-
-    parameters = {"params": [p for p in model.parameters()], "name": "parameters"}
-
-    return split_params_into_different_moe_groups_for_optimizer(parameters)
 
 
 class CIFARTrial(DeepSpeedTrial):
@@ -78,8 +44,6 @@ class CIFARTrial(DeepSpeedTrial):
 
         model = Net(self.args)
         parameters = filter(lambda p: p.requires_grad, model.parameters())
-        if self.args.moe_param_group:
-            parameters = create_moe_param_groups(model)
 
         ds_config = overwrite_deepspeed_config(
             self.args.deepspeed_config, self.args.get("overwrite_deepspeed_args", {})
