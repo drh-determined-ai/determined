@@ -1,11 +1,14 @@
 import logging
+import pathlib
+
+import determined as det
 import uuid
 from typing import List
 
 from determined import searcher
 
 
-class SingleSearchMethod(searcher.SearchMethod):
+class ModelInfoTuner(searcher.SearchMethod):
     def __init__(self, experiment_config: dict, max_length: int) -> None:
         # since this is a single trial the hyperparameter space comprises a single point
         self.hyperparameters = experiment_config["hyperparameters"]
@@ -54,3 +57,12 @@ class SingleSearchMethod(searcher.SearchMethod):
         close = searcher.Close(request_id=create.request_id)
         logging.debug(f"Create({create.request_id}, {create.hparams})")
         return [create, validate_after, close]
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
+    cifar10_moe_path = pathlib.Path(__file__).parent.parent.parent.joinpath("deepspeed").joinpath("cifar10_moe")
+    print(cifar10_moe_path)
+
+    # TODO properly initialize ModelInfoTuner
+    search_method = ModelInfoTuner()
