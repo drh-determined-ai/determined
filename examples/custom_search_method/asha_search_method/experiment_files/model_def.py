@@ -20,7 +20,32 @@ from determined.pytorch import DataLoader, PyTorchTrial, PyTorchTrialContext
 
 import data
 
+from deepspeed.profiling.flops_profiler import get_model_profile
+
+
 TorchData = Union[Dict[str, torch.Tensor], Sequence[torch.Tensor], torch.Tensor]
+
+
+def create_model(hp) -> nn.Module:
+    model = nn.Sequential(
+        nn.Conv2d(1, hp["n_filters1"], 3, 1),
+        nn.ReLU(),
+        nn.Conv2d(
+            hp["n_filters1"],
+            hp["n_filters2"],
+            3,
+        ),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Dropout2d(hp["dropout1"]),
+        Flatten(),
+        nn.Linear(144 * hp["n_filters2"], 128),
+        nn.ReLU(),
+        nn.Dropout2d(hp["dropout2"]),
+        nn.Linear(128, 10),
+        nn.LogSoftmax(),
+    )
+    return model
 
 
 class MNistTrial(PyTorchTrial):
@@ -32,25 +57,14 @@ class MNistTrial(PyTorchTrial):
         self.download_directory = f"/tmp/data-rank{self.context.distributed.get_rank()}"
         self.data_downloaded = False
 
-        self.model = self.context.wrap_model(
-            nn.Sequential(
-                nn.Conv2d(1, self.context.get_hparam("n_filters1"), 3, 1),
-                nn.ReLU(),
-                nn.Conv2d(
-                    self.context.get_hparam("n_filters1"),
-                    self.context.get_hparam("n_filters2"),
-                    3,
-                ),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Dropout2d(self.context.get_hparam("dropout1")),
-                Flatten(),
-                nn.Linear(144 * self.context.get_hparam("n_filters2"), 128),
-                nn.ReLU(),
-                nn.Dropout2d(self.context.get_hparam("dropout2")),
-                nn.Linear(128, 10),
-                nn.LogSoftmax(),
-            )
+        self.model = self.context.wrap_model(create_model(self.context.get_hparams()))
+
+        self.profile = get_model_profile(
+            model=self.model,
+            input_shape=(self.context.get_per_slot_batch_size(), 1, 28, 28),
+            print_profile=True,
+            detailed=False,
+            as_string=False,
         )
 
         self.optimizer = self.context.wrap_optimizer(
@@ -107,4 +121,10 @@ class MNistTrial(PyTorchTrial):
         pred = output.argmax(dim=1, keepdim=True)
         accuracy = pred.eq(labels.view_as(pred)).sum().item() / len(data)
 
-        return {"validation_loss": validation_loss, "accuracy": accuracy}
+        return {
+            "validation_loss": validation_loss,
+            "accuracy": accuracy,
+            "flops": self.profile[0],
+            "macs": self.profile[1],
+            "parameters": self.profile[2],
+        }

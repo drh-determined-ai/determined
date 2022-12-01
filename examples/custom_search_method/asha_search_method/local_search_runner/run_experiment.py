@@ -21,12 +21,61 @@ sys.path.append(".")
 
 import logging
 from asha import ASHASearchMethod
-from utils import sample_params
 from pathlib import Path
 from determined import searcher
 
-if __name__ == "__main__":
+from deepspeed.profiling.flops_profiler import get_model_profile
 
+#from experiment_files.model_def import create_model
+import utils
+
+MIN_FLOPS = 1_250_000_000
+
+from torch import nn
+from experiment_files.layers import Flatten
+def create_model(hp: utils.HPPoint) -> nn.Module:
+    model = nn.Sequential(
+        nn.Conv2d(1, hp["n_filters1"], 3, 1),
+        nn.ReLU(),
+        nn.Conv2d(
+            hp["n_filters1"],
+            hp["n_filters2"],
+            3,
+        ),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Dropout2d(hp["dropout1"]),
+        Flatten(),
+        nn.Linear(144 * hp["n_filters2"], 128),
+        nn.ReLU(),
+        nn.Dropout2d(hp["dropout2"]),
+        nn.Linear(128, 10),
+        nn.LogSoftmax(),
+    )
+    return model
+
+
+def filter(hp: utils.HPPoint) -> bool:
+    model = create_model(hp)
+    flops, _, _ = get_model_profile(
+        model=model,
+        input_shape=(hp["global_batch_size"], 1, 28, 28),
+        print_profile=False,
+        detailed=False,
+        as_string=False,
+    )
+    if flops >= MIN_FLOPS:
+    #    print(f"Accepted HP configuration for a model with FLOPS={flops} >= {MIN_FLOPS=}")
+        return True
+    #print(f"Rejected HP configuration for a model with FLOPS={flops} < {MIN_FLOPS=}")
+    return False
+
+
+def sample_params() -> utils.HPPoint:
+    return utils.filtered_params(filter)
+
+
+def main():
     ########################################################################
     # Multi-trial experiment
     # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -77,3 +126,8 @@ if __name__ == "__main__":
     # 3) Exits when the experiment is completed.
     experiment_id = search_runner.run(model_config, model_dir=model_context_dir)
     logging.info(f"Experiment {experiment_id} has been completed.")
+
+
+if __name__ == "__main__":
+    #print(sample_params())
+    main()
