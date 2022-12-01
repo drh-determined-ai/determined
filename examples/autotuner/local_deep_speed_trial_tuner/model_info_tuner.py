@@ -1,19 +1,52 @@
+import copy
+import json
 import logging
 import pathlib
+import shutil
+import tempfile
 
 import determined as det
 import uuid
 from typing import List
 
+from determined.common import util
 from determined import searcher
 
 
 class ModelInfoTuner(searcher.SearchMethod):
-    def __init__(self, experiment_config: dict, max_length: int) -> None:
+    def __init__(self, experiment_config: dict, max_length: int, model_dir: pathlib.Path) -> None:
         # since this is a single trial the hyperparameter space comprises a single point
         self.hyperparameters = experiment_config["hyperparameters"]
         self.max_length = max_length
         self.trial_closed = False
+        self.model_info_config_path = self._create_model_info_ds_config(model_dir)
+
+    def _create_model_info_ds_config(self, model_dir: pathlib.Path) -> pathlib.Path:
+        # see https://github.com/microsoft/DeepSpeed/blob/c5f85858a87b9df811e7accb5f6e101a1c9f2f46/deepspeed/autotuning/autotuner.py#L695
+        # to avoid stealing their implementation of replace_dict
+        ds_config_file = self.hyperparameters["deepspeed_config"]
+        model_dir.joinpath("profile_model_info").mkdir()
+        with model_dir.joinpath(ds_config_file).open("r") as f1:
+            ds_config = json.load(f1)
+        ds_config["train_micro_batch_size_per_gpu"] = 1
+        if "zero_optimization" not in ds_config:
+            ds_config["zero_optimization"] = {"stage": 3}
+        else:
+            ds_config["zero_optimization"]["stage"] = 3
+        ds_config["memory_break_down"] = False
+        ds_config["autotuning"] = {
+            "enabled": True,
+            "model_info_path": "profile_model_info/model_info.json",
+            "model_info": {
+                "profile": True
+            }
+        }
+
+        model_info_filename = "model_info_ds_config.json"
+        model_info_config_path = model_dir.joinpath(model_info_filename)
+        with model_info_config_path.open("w") as f2:
+            json.dump(ds_config, f2)
+        return model_info_filename
 
     def on_trial_created(
         self, _: searcher.SearcherState, __: uuid.UUID
@@ -23,11 +56,13 @@ class ModelInfoTuner(searcher.SearchMethod):
     def on_validation_completed(
         self, _: searcher.SearcherState, request_id: uuid.UUID, metric: float, train_length: int
     ) -> List[searcher.Operation]:
+        logging.info(f"validation completed; metric={metric}, train_length={train_length}")
         return []
 
     def on_trial_closed(
         self, _: searcher.SearcherState, request_id: uuid.UUID
     ) -> List[searcher.Operation]:
+        logging.info("trial closed")
         self.trial_closed = True
         return [searcher.Shutdown()]
 
@@ -46,9 +81,11 @@ class ModelInfoTuner(searcher.SearchMethod):
     def initial_operations(self, _: searcher.SearcherState) -> List[searcher.Operation]:
         logging.info("initial_operations")
 
+        model_info_hyperparameters = copy.deepcopy(self.hyperparameters)
+        model_info_hyperparameters["deepspeed_config"] = self.model_info_config_path
         create = searcher.Create(
             request_id=uuid.uuid4(),
-            hparams=self.hyperparameters,
+            hparams=model_info_hyperparameters,
             checkpoint=None,
         )
         validate_after = searcher.ValidateAfter(
@@ -59,10 +96,32 @@ class ModelInfoTuner(searcher.SearchMethod):
         return [create, validate_after, close]
 
 
+def main(exp_dir: str, exp_conf: str) -> None:
+    exp_dir_path = pathlib.Path(exp_dir)
+
+    with exp_dir_path.joinpath(exp_conf).open("r") as f:
+        config = util.safe_load_yaml_with_exceptions(f)
+    config["searcher"] = {
+        "name": "custom",
+        "metric": "validation_error",
+        "smaller_is_better": True,
+        "unit": "batches",
+    }
+    search_method = ModelInfoTuner(config, max_length=1, model_dir=exp_dir_path)
+
+    searcher_dir = pathlib.Path("local_deep_speed_trial_tuner/searcher_dir")
+    search_runner = searcher.LocalSearchRunner(search_method, searcher_dir=searcher_dir)
+    experiment_id = search_runner.run(config, model_dir=exp_dir_path)
+    logging.info(f"Experiment {experiment_id} has been completed")
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=det.LOG_FORMAT)
-    cifar10_moe_path = pathlib.Path(__file__).parent.parent.parent.joinpath("deepspeed").joinpath("cifar10_moe")
+    cifar10_moe_path = pathlib.Path(__file__).absolute().parent.parent.parent\
+        .joinpath("deepspeed").joinpath("cifar10_moe")
     print(cifar10_moe_path)
 
-    # TODO properly initialize ModelInfoTuner
-    search_method = ModelInfoTuner()
+    with tempfile.TemporaryDirectory() as exp_dir:
+        shutil.copytree(cifar10_moe_path, exp_dir, dirs_exist_ok=True)
+        main(exp_dir, "zero_stages.yaml")
+
