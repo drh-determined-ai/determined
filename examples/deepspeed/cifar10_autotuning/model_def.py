@@ -17,9 +17,9 @@ from determined.pytorch.deepspeed import (DeepSpeedTrial,
 
 
 class Net(nn.Module):
-    def __init__(self, args):
+    def __init__(self, hp):
         super(Net, self).__init__()
-        self.args = args
+        self.hp = hp
         self.conv1 = nn.Conv2d(3, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
@@ -36,21 +36,36 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
-
 class CIFARTrial(DeepSpeedTrial):
     def __init__(self, context: DeepSpeedTrialContext) -> None:
         self.context = context
         self.args = AttrDict(self.context.get_hparams())
 
-        model = Net(self.args)
-        parameters = filter(lambda p: p.requires_grad, model.parameters())
+        self.model = Net(self.context.get_hparams())
+        parameters = list(filter(lambda p: p.requires_grad, self.model.parameters()))
 
         ds_config = overwrite_deepspeed_config(
             self.args.deepspeed_config, self.args.get("overwrite_deepspeed_args", {})
         )
+        autotuning_config = ds_config.get("autotuning", {})
+        if autotuning_config.get("enabled", False):
+            batch_size = 1
+            print(">> Autotuning is enabled from DeepSpeed config,")
+            print(">> but for now let's just profile the network.")
+            print(f">> Say we are using {batch_size=}")
+            profile = deepspeed.profiling.flops_profiler.get_model_profile(
+                model=self.model,
+                input_shape=(batch_size, 3, 32, 32),
+                print_profile=True,
+                detailed=False,
+                as_string=False,
+            )
+            print(">> Profiling done.")
+
+        ds_config["autotuning"] = {"enabled": False}
 
         model_engine, optimizer, __, __ = deepspeed.initialize(
-            model=model, model_parameters=parameters, config=ds_config
+            model=self.model, model_parameters=parameters, config=ds_config
         )
 
         self.fp16 = model_engine.fp16_enabled()

@@ -1,7 +1,14 @@
 name: cifar10_autotuning_deepspeed
-debug: false
+debug: true
 hyperparameters:
   deepspeed_config: ds_config.json
+  autotuning:
+    zero: auto
+    train_micro_batch_size_per_gpu:
+      type: int
+      min: 1
+      max: 256
+    metric: flops
 environment:
     environment_variables:                                                                          
         - NCCL_DEBUG=INFO                                                                           

@@ -1,6 +1,8 @@
 {
   "autotuning": {
-      "enabled": true
+      "enabled": true,
+      "overwrite": true,
+      "fast": false
   },
   "train_batch_size": 16,
   "steps_per_print": 2000,
