@@ -457,6 +457,35 @@ class TestDeepSpeedTrial:
         )
         controller.run()
 
+
+    def test_deepspeed_autotuner(self) -> None:
+        hparams = dict(self.hparams)
+        hparams["deepspeed_config"]["autotuning"] = {
+            "enabled": False,
+            #"enabled": True,
+            "overwrite": False,
+            "fast": True,
+            "arg_mappings": {},
+        }
+        def make_workloads() -> workload.Stream:
+            trainer = utils.TrainAndValidate()
+            yield from trainer.send(
+                steps=1,
+                validation_freq=1,
+                train_batch_calls=self.data_parallel_only_auto_train_batch_calls,
+            )
+        controller = utils.make_trial_controller_from_trial_implementation(
+            trial_class=deepspeed_linear_model.LinearDeepSpeedTrial,
+            #trial_class=deepspeed_linear_model.AutotuningTrial,
+            hparams=hparams,
+            workloads=make_workloads(),
+            trial_seed=self.trial_seed,
+            expose_gpus=True,
+        )
+        controller.run()
+        assert(False)
+
+
     def test_checkpointing_and_restoring(self, tmp_path: pathlib.Path) -> None:
         def make_trial_controller_fn(
             workloads: workload.Stream,
@@ -662,3 +691,5 @@ def test_overwrite_deepspeed_config() -> None:
     # Test fail invalid base_ds_config argument.
     with pytest.raises(TypeError, match="Expected string or dict for base_ds_config argument."):
         _ = det_deepspeed.overwrite_deepspeed_config([1, 2], source_ds_config)
+
+
